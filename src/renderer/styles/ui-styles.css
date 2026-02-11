@@ -1,0 +1,187 @@
+/* ui-styles.css — Aether 设计语言 CSS 变量 */
+
+/* ==================== 默认风格（Aether Light） ==================== */
+[data-ui-style="chatgpt"][data-theme="light"] {
+    --bg-body: #f3f4f6;
+    --bg-sidebar: #ffffff;
+    --bg-content: #ffffff;
+    --bg-input: #ffffff;
+
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --text-tertiary: #9ca3af;
+
+    --primary: #6366f1;
+    --primary-light: #eef2ff;
+    --primary-glow: rgba(99, 102, 241, 0.15);
+
+    --border-subtle: #e5e7eb;
+    --border-focus: #c7d2fe;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-float: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    --shadow-content: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+
+    --chatgpt-user-bg: transparent;
+    --chatgpt-sider-hover: #f3f4f6;
+    --chatgpt-sider-active: #eef2ff;
+
+    --avatar-ai-from: #6366f1;
+    --avatar-ai-to: #8b5cf6;
+    --avatar-user-bg: #ffffff;
+    --avatar-user-border: #e5e7eb;
+
+    --input-gradient: linear-gradient(to top, #ffffff 60%, rgba(255,255,255,0.8) 80%, transparent 100%);
+}
+
+/* ==================== Aether Dark ==================== */
+[data-ui-style="chatgpt"][data-theme="dark"] {
+    --bg-body: #0f172a;
+    --bg-sidebar: #1e293b;
+    --bg-content: #1e293b;
+    --bg-input: #1e293b;
+
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+
+    --primary: #818cf8;
+    --primary-light: rgba(129, 140, 248, 0.1);
+    --primary-glow: rgba(129, 140, 248, 0.15);
+
+    --border-subtle: #334155;
+    --border-focus: #6366f1;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    --shadow-float: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+    --shadow-content: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+
+    --chatgpt-user-bg: transparent;
+    --chatgpt-sider-hover: #334155;
+    --chatgpt-sider-active: rgba(129, 140, 248, 0.1);
+
+    --avatar-ai-from: #818cf8;
+    --avatar-ai-to: #a78bfa;
+    --avatar-user-bg: #334155;
+    --avatar-user-border: #475569;
+
+    --input-gradient: linear-gradient(to top, #1e293b 60%, rgba(30,41,59,0.8) 80%, transparent 100%);
+}
+
+/* ==================== Glass Light ==================== */
+[data-ui-style="glass"][data-theme="light"] {
+    --glass-bg: rgba(255, 255, 255, 0.4);
+    --glass-panel: rgba(255, 255, 255, 0.35);
+    --glass-card: rgba(255, 255, 255, 0.4);
+    --glass-blur: 20px;
+    --glass-border: rgba(255, 255, 255, 0.5);
+    --glass-shadow: 0 4px 24px rgba(99, 102, 241, 0.06);
+    --glass-inset-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.6);
+    --glass-gradient-start: #c7d2fe;
+    --glass-gradient-mid: #ddd6fe;
+    --glass-gradient-end: #fbcfe8;
+    --glass-user-bg: rgba(99, 102, 241, 0.1);
+    --glass-user-border: rgba(99, 102, 241, 0.15);
+    --glass-assistant-bg: rgba(255, 255, 255, 0.35);
+    --glass-assistant-border: rgba(255, 255, 255, 0.5);
+
+    --avatar-ai-from: #6366f1;
+    --avatar-ai-to: #8b5cf6;
+    --avatar-user-bg: rgba(255,255,255,0.5);
+    --avatar-user-border: rgba(255,255,255,0.6);
+
+    --input-gradient: linear-gradient(to top, rgba(199,210,254,0.4) 20%, transparent 100%);
+}
+
+/* ==================== Glass Dark ==================== */
+[data-ui-style="glass"][data-theme="dark"] {
+    --glass-bg: rgba(30, 30, 46, 0.4);
+    --glass-panel: rgba(30, 30, 46, 0.45);
+    --glass-card: rgba(45, 45, 65, 0.4);
+    --glass-blur: 20px;
+    --glass-border: rgba(129, 140, 248, 0.2);
+    --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    --glass-inset-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05);
+    --glass-gradient-start: #1e1b4b;
+    --glass-gradient-mid: #312e81;
+    --glass-gradient-end: #4c1d95;
+    --glass-user-bg: rgba(129, 140, 248, 0.15);
+    --glass-user-border: rgba(129, 140, 248, 0.25);
+    --glass-assistant-bg: rgba(45, 45, 65, 0.4);
+    --glass-assistant-border: rgba(129, 140, 248, 0.12);
+
+    --avatar-ai-from: #818cf8;
+    --avatar-ai-to: #a78bfa;
+    --avatar-user-bg: rgba(45,45,65,0.5);
+    --avatar-user-border: rgba(129,140,248,0.2);
+
+    --input-gradient: linear-gradient(to top, rgba(30,27,75,0.6) 20%, transparent 100%);
+}
+
+/* ==================== Glass 工具类 ==================== */
+
+.glass-panel {
+    background: var(--glass-panel) !important;
+    backdrop-filter: blur(var(--glass-blur)) !important;
+    -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+    border: 1px solid var(--glass-border) !important;
+    box-shadow: var(--glass-shadow), var(--glass-inset-shadow);
+}
+
+.glass-card {
+    background: var(--glass-card);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+}
+
+.app-root-glass {
+    background: linear-gradient(135deg,
+        var(--glass-gradient-start) 0%,
+        var(--glass-gradient-mid) 50%,
+        var(--glass-gradient-end) 100%
+    );
+    min-height: 100vh;
+}
+
+/* Glass Ant Design 覆盖 */
+[data-ui-style="glass"] .ant-layout-sider {
+    background: var(--glass-panel) !important;
+    backdrop-filter: blur(var(--glass-blur)) !important;
+    -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+    border-right: 1px solid var(--glass-border) !important;
+}
+
+/* Glass 滚动条 */
+[data-ui-style="glass"] ::-webkit-scrollbar-thumb {
+    background: rgba(99, 102, 241, 0.2);
+}
+[data-ui-style="glass"] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.35);
+}
+
+/* ==================== 通用工具类 ==================== */
+
+.sidebar-conv-actions {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.sidebar-conv-item:hover .sidebar-conv-actions {
+    opacity: 1;
+}
+
+/* 内容区浮动卡片 */
+.content-card {
+    background: var(--bg-content, #ffffff);
+    box-shadow: var(--shadow-content);
+    overflow: hidden;
+}
+
+/* 输入区渐变遮罩 */
+.input-gradient-mask {
+    background: var(--input-gradient);
+}

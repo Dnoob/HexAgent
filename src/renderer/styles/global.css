@@ -1,0 +1,75 @@
+/* 全局样式 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+        'Noto Sans', 'Noto Sans SC', sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}
+
+/* 暗色模式滚动条 */
+[data-theme='dark'] ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* highlight.js 代码高亮主题色修正 */
+.hljs {
+    background: transparent !important;
+}
+
+/* 侧边栏折叠/展开动画 */
+.ant-layout-sider {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 响应式：小窗口隐藏侧边栏 */
+@media (max-width: 640px) {
+    .ant-layout-sider {
+        position: absolute !important;
+        z-index: 100;
+        height: 100vh;
+    }
+}
+
+/* 消息进入动画 */
+.fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+    opacity: 0;
+    transform: translateY(8px);
+}
+
+@keyframes fadeIn {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
