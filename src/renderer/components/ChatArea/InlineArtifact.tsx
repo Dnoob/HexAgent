@@ -67,8 +67,8 @@ export default function InlineArtifact({ artifacts }: Props) {
                         style={{
                             maxWidth: '90vw', maxHeight: '90vh',
                             borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                            cursor: 'zoom-out',
                         }}
-                        onClick={(e) => e.stopPropagation()}
                     />
                 </div>
             )}

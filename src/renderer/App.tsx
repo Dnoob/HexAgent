@@ -8,6 +8,7 @@ import ChatInput from './components/ChatInput/ChatInput'
 import { useChatStore, useConversationStore, useSettingsStore, useUIStore } from './store'
 import { useUIStyle } from './hooks/useUIStyle'
 import ConfirmationModal from './components/ConfirmationModal'
+import type { ToolConfirmRequest } from '../shared/types'
 
 const SettingsModal = lazy(() => import('./components/Settings/SettingsModal'))
 const { Sider } = Layout
@@ -47,7 +48,7 @@ function App() {
     useEffect(() => {
         const api = window.hexAgent
         if (api?.onToolConfirmRequest) {
-            api.onToolConfirmRequest((request: any) => {
+            api.onToolConfirmRequest((request: ToolConfirmRequest) => {
                 useUIStore.getState().showConfirm(request)
             })
         }

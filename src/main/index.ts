@@ -5,8 +5,9 @@ import { createConversation, getConversations, getMessages, addMessage, addToolM
 import fs from 'fs'
 import { configManager } from './config'
 import { logger } from './logger'
-import type { LLMProviderType, ChatMessage, MessageRow, ConversationRow } from '../shared/types'
+import type { LLMProviderType, ChatMessage, MessageRow, ConversationRow, MCPServerConfig } from '../shared/types'
 import path from 'path'
+import { mcpManager } from './mcp/manager'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -171,13 +172,129 @@ const VALID_MESSAGE_ROLES = ['user', 'assistant', 'tool', 'system'] as const
 const VALID_CONFIG_KEYS: ReadonlySet<string> = new Set([
     'activeProvider', 'activeModel', 'authMode', 'theme', 'uiStyle',
     'workingDirectory', 'allowedDirectories', 'maxToolIterations',
-    'autoApproveTools', 'temperature', 'maxTokens', 'systemPrompt', 'windowState',
+    'autoApproveTools', 'enablePlanning', 'mcpServers', 'temperature', 'maxTokens', 'systemPrompt', 'windowState',
 ])
 const VALID_PROVIDERS: ReadonlySet<string> = new Set([
     'openai', 'anthropic', 'kimi', 'deepseek', 'minimax', 'ollama',
 ])
 const MAX_STRING_LENGTH = 100_000 // 100KB for message content
 const MAX_TITLE_LENGTH = 500
+
+function sanitizeTitleCandidate(raw: string): string {
+    if (!raw) return ''
+
+    let cleaned = raw
+        .replace(/<think>[\s\S]*?<\/think>/gi, ' ')
+        .replace(/<\/?think>/gi, ' ')
+        .replace(/```[\s\S]*?```/g, ' ')
+        .trim()
+
+    const lines = cleaned
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+
+    for (const line of lines) {
+        const normalized = line
+            .replace(/^#+\s*/, '')
+            .replace(/^(标题|title)\s*[:：]\s*/i, '')
+            .replace(/^["'""''《》【】]+|["'""''《》【】]+$/g, '')
+            .trim()
+
+        if (!normalized) continue
+        if (/^<\/?think>$/i.test(normalized)) continue
+        if (/^(好的|当然|这是|以下|我建议|让我|根据)/.test(normalized)) continue
+        return normalized.substring(0, 20)
+    }
+
+    return ''
+}
+
+function buildFallbackTitle(userText: string): string {
+    return userText
+        .replace(/\s+/g, ' ')
+        .replace(/^["'""''《》【】]+|["'""''《》【】]+$/g, '')
+        .trim()
+        .substring(0, 20)
+}
+
+function normalizeMcpServerConfig(raw: MCPServerConfig): MCPServerConfig {
+    if (!raw || typeof raw !== 'object') {
+        throw new Error('Invalid MCP server config')
+    }
+    if (typeof raw.id !== 'string' || !raw.id.trim()) {
+        throw new Error('Invalid MCP server id')
+    }
+    if (typeof raw.name !== 'string' || !raw.name.trim()) {
+        throw new Error('Invalid MCP server name')
+    }
+    if (raw.transport !== 'stdio' && raw.transport !== 'streamable-http' && raw.transport !== 'sse') {
+        throw new Error('Invalid MCP transport')
+    }
+    if (typeof raw.command !== 'string') {
+        throw new Error('Invalid MCP command')
+    }
+    if (!Array.isArray(raw.args) || raw.args.some((arg) => typeof arg !== 'string')) {
+        throw new Error('Invalid MCP args')
+    }
+    if (raw.cwd !== undefined && typeof raw.cwd !== 'string') {
+        throw new Error('Invalid MCP cwd')
+    }
+    if (raw.env !== undefined) {
+        if (typeof raw.env !== 'object' || raw.env === null) {
+            throw new Error('Invalid MCP env')
+        }
+        for (const [key, value] of Object.entries(raw.env)) {
+            if (typeof key !== 'string' || typeof value !== 'string') {
+                throw new Error('Invalid MCP env entry')
+            }
+        }
+    }
+    if (raw.url !== undefined && typeof raw.url !== 'string') {
+        throw new Error('Invalid MCP url')
+    }
+    if (raw.headers !== undefined) {
+        if (typeof raw.headers !== 'object' || raw.headers === null) {
+            throw new Error('Invalid MCP headers')
+        }
+        for (const [key, value] of Object.entries(raw.headers)) {
+            if (typeof key !== 'string' || typeof value !== 'string') {
+                throw new Error('Invalid MCP header entry')
+            }
+        }
+    }
+    if (raw.toolNamePrefix !== undefined && typeof raw.toolNamePrefix !== 'string') {
+        throw new Error('Invalid MCP toolNamePrefix')
+    }
+    if (raw.allowedTools !== undefined) {
+        if (!Array.isArray(raw.allowedTools) || raw.allowedTools.some((item) => typeof item !== 'string')) {
+            throw new Error('Invalid MCP allowedTools')
+        }
+    }
+
+    if (raw.transport === 'stdio' && !raw.command.trim()) {
+        throw new Error('Invalid MCP command')
+    }
+    if ((raw.transport === 'streamable-http' || raw.transport === 'sse') && !raw.url?.trim()) {
+        throw new Error('Invalid MCP url')
+    }
+
+    return {
+        id: raw.id.trim(),
+        name: raw.name.trim(),
+        enabled: !!raw.enabled,
+        transport: raw.transport,
+        command: raw.command.trim(),
+        args: raw.args.map((arg) => arg.trim()).filter(Boolean),
+        ...(raw.cwd?.trim() ? { cwd: raw.cwd.trim() } : {}),
+        ...(raw.env ? { env: raw.env } : {}),
+        ...(raw.url?.trim() ? { url: raw.url.trim() } : {}),
+        ...(raw.headers ? { headers: raw.headers } : {}),
+        ...(raw.toolNamePrefix?.trim() ? { toolNamePrefix: raw.toolNamePrefix.trim() } : {}),
+        ...(raw.allowedTools ? { allowedTools: raw.allowedTools.map((item) => item.trim()).filter(Boolean) } : {}),
+        autoApprove: !!raw.autoApprove,
+    }
+}
 
 // ==================== 数据库 IPC ====================
 ipcMain.handle('select-directory', async () => {
@@ -384,6 +501,7 @@ ipcMain.handle('llm:chat', async (event, messages: { role: string, content: stri
             onError: (error) => event.sender.send('llm:error', error),
             onToolCall: (name, args) => event.sender.send('llm:tool-call', name, args),
             onToolResult: (toolName, result, artifacts) => event.sender.send('llm:tool-result', toolName, result, artifacts),
+            onPlanUpdate: (plan) => event.sender.send('llm:plan-update', plan),
         },
         options
     )
@@ -402,10 +520,20 @@ ipcMain.handle('config:set', (_event, key: string, value: any) => {
     if (typeof key !== 'string' || !VALID_CONFIG_KEYS.has(key)) {
         throw new Error(`Invalid config key: ${key}`)
     }
-    configManager.set(key as any, value)
+    const normalizedValue = key === 'mcpServers'
+        ? (() => {
+            if (!Array.isArray(value)) throw new Error('Invalid mcpServers')
+            return value.map((item) => normalizeMcpServerConfig(item))
+        })()
+        : value
+
+    configManager.set(key as any, normalizedValue)
     // 切换 provider/model/authMode 时清除缓存的 Provider 实例
     if (key === 'activeProvider' || key === 'activeModel' || key === 'authMode') {
         llmManager.clearProviderCache()
+    }
+    if (key === 'mcpServers') {
+        return mcpManager.reloadFromConfig()
     }
 })
 
@@ -433,12 +561,130 @@ ipcMain.handle('app:get-version', () => {
     return app.getVersion()
 })
 
+// ==================== MCP IPC ====================
+ipcMain.handle('mcp:test-server', async (_event, config: MCPServerConfig) => {
+    return mcpManager.testServer(normalizeMcpServerConfig(config))
+})
+
+ipcMain.handle('mcp:get-statuses', () => {
+    return mcpManager.getStatuses()
+})
+
+ipcMain.handle('mcp:refresh-servers', async () => {
+    return mcpManager.reloadFromConfig()
+})
+
+ipcMain.handle('mcp:refresh-server', async (_event, serverId: string) => {
+    if (typeof serverId !== 'string' || !serverId.trim()) {
+        throw new Error('Invalid serverId')
+    }
+    return mcpManager.refreshServer(serverId.trim())
+})
+
+ipcMain.handle('mcp:get-server-details', async (_event, serverId: string) => {
+    if (typeof serverId !== 'string' || !serverId.trim()) {
+        throw new Error('Invalid serverId')
+    }
+    return mcpManager.getServerDetails(serverId.trim())
+})
+
+ipcMain.handle('mcp:get-prompt', async (_event, serverId: string, promptName: string) => {
+    if (typeof serverId !== 'string' || !serverId.trim()) {
+        throw new Error('Invalid serverId')
+    }
+    if (typeof promptName !== 'string' || !promptName.trim()) {
+        throw new Error('Invalid promptName')
+    }
+    return mcpManager.getPrompt(serverId.trim(), promptName.trim())
+})
+
+ipcMain.handle('mcp:read-resource', async (_event, serverId: string, uri: string) => {
+    if (typeof serverId !== 'string' || !serverId.trim()) {
+        throw new Error('Invalid serverId')
+    }
+    if (typeof uri !== 'string' || !uri.trim()) {
+        throw new Error('Invalid uri')
+    }
+    return mcpManager.readResource(serverId.trim(), uri.trim())
+})
+
+// ==================== 标题生成 ====================
+ipcMain.handle('llm:generate-title', async (_event, conversationId: number, userText: string) => {
+    if (typeof conversationId !== 'number' || !Number.isInteger(conversationId) || conversationId < 0) {
+        throw new Error('Invalid conversationId')
+    }
+    if (typeof userText !== 'string') {
+        throw new Error('Invalid text')
+    }
+
+    try {
+        const providerType = configManager.get('activeProvider')
+        const model = configManager.get('activeModel')
+        const authMode = configManager.get('authMode') || 'api'
+        const { getProviderConfig } = await import('./llm/provider-registry')
+        const config = getProviderConfig(providerType, authMode)
+        const apiKey = configManager.getApiKey(providerType)
+
+        const messages = [
+            { role: 'system' as const, content: '你是标题生成器。用户会发送一段消息，你只需返回一个10字以内的简短标题。只输出标题本身，不要引号、标点、解释或任何多余内容。' },
+            { role: 'user' as const, content: userText.substring(0, 200) },
+        ]
+
+        // 非流式调用，直接拿结果
+        let title = ''
+
+        if (providerType === 'anthropic') {
+            const { default: Anthropic } = await import('@anthropic-ai/sdk')
+            const client = new Anthropic({ apiKey: apiKey || '' })
+            const systemMsg = messages.find(m => m.role === 'system')
+            const userMsgs = messages.filter(m => m.role !== 'system')
+            const response = await client.messages.create({
+                model: model || config.defaultModel,
+                max_tokens: 50,
+                ...(systemMsg ? { system: systemMsg.content } : {}),
+                messages: userMsgs.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+            })
+            const block = response.content[0]
+            if (block.type === 'text') title = block.text
+        } else {
+            const { default: OpenAI } = await import('openai')
+            const client = new OpenAI({
+                apiKey: providerType === 'ollama' ? 'ollama' : (apiKey || ''),
+                baseURL: config.baseURL,
+                defaultHeaders: config.defaultHeaders,
+            })
+            const response = await client.chat.completions.create({
+                model: model || config.defaultModel,
+                messages: messages as any,
+                max_tokens: 50,
+            })
+            title = response.choices[0]?.message?.content || ''
+        }
+
+        title = sanitizeTitleCandidate(title)
+        if (!title) {
+            title = buildFallbackTitle(userText)
+        }
+        if (title) {
+            updateConversation(conversationId, title)
+            return title
+        }
+        return null
+    } catch (e: any) {
+        logger.warn('llm', `Title generation failed: ${e.message}`)
+        return null
+    }
+})
+
 // ==================== 应用生命周期 ====================
 app.whenReady().then(() => {
     logger.info('app', 'HexAgent starting')
     createWindow()
     buildMenu()
     registerEscapeShortcut()
+    mcpManager.reloadFromConfig().catch((e) => {
+        logger.warn('mcp', `Initial MCP load failed: ${e.message}`)
+    })
 })
 
 app.on('window-all-closed', () => {

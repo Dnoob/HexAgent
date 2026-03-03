@@ -21,6 +21,17 @@ export interface ToolResult {
     artifacts: Artifact[]
 }
 
+export interface PlanStep {
+    title: string
+    description: string
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+}
+
+export interface Plan {
+    steps: PlanStep[]
+    currentStepIndex: number
+}
+
 export interface StreamCallbacks {
     onChunk: (text: string) => void
     onThinking?: (text: string) => void
@@ -28,6 +39,7 @@ export interface StreamCallbacks {
     onError: (error: string) => void
     onToolCall: (name: string, args: any) => void
     onToolResult?: (toolName: string, result: string, artifacts: Artifact[]) => void
+    onPlanUpdate?: (plan: Plan) => void
 }
 
 export interface ChatOptions {

@@ -28,7 +28,10 @@ function ChatInput() {
     }
 
     function handleKeyDown(e: React.KeyboardEvent) {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            if (!isStreaming) send()
+        }
     }
 
     const hasText = text.trim().length > 0
@@ -61,13 +64,12 @@ function ChatInput() {
                     } : {}),
                 }}>
                     <TextArea
-                        placeholder="问我任何问题..."
+                        placeholder={isStreaming ? '正在生成回复，可继续输入，停止后发送' : '问我任何问题...'}
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         onKeyDown={handleKeyDown}
                         onFocus={() => setFocused(true)}
                         onBlur={() => setFocused(false)}
-                        disabled={isStreaming}
                         autoSize={{ minRows: 1, maxRows: 6 }}
                         variant="borderless"
                         style={{
@@ -114,6 +116,11 @@ function ChatInput() {
                         {isStreaming ? <StopOutlined /> : <SendOutlined />}
                     </button>
                 </div>
+                {isStreaming && (
+                    <div style={{ marginTop: 8, paddingLeft: 4, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        正在生成回复，可继续输入；停止后即可发送。
+                    </div>
+                )}
             </div>
         </div>
     )

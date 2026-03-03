@@ -1,11 +1,20 @@
 // ChatArea — 消息区域（底部留白给浮动输入框）
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button } from 'antd'
-import { SettingOutlined } from '@ant-design/icons'
+import { SettingOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons'
 import { useChatStore, useConversationStore, useUIStore } from '../../store'
+import type { Message } from '../../store'
 import MessageBubble from './MessageBubble'
 import ThinkingIndicator from './ThinkingIndicator'
 import WelcomeScreen from './WelcomeScreen'
+
+interface MessageGroup {
+    message: Message
+    index: number
+    toolMessages: Message[]
+}
+
+const BOTTOM_THRESHOLD = 96
 
 function ChatArea() {
     const messages = useChatStore((s) => s.messages)
@@ -17,11 +26,64 @@ function ChatArea() {
     const currentConversationId = useConversationStore((s) => s.currentConversationId)
     const openSettings = useUIStore((s) => s.openSettings)
     const scrollRef = useRef<HTMLDivElement>(null)
+    const nearBottomRef = useRef(true)
+    const [isNearBottom, setIsNearBottom] = useState(true)
+
+    const updateScrollState = useCallback(() => {
+        const el = scrollRef.current
+        if (!el) return
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+        const nextIsNearBottom = distanceFromBottom <= BOTTOM_THRESHOLD
+        nearBottomRef.current = nextIsNearBottom
+        setIsNearBottom(nextIsNearBottom)
+    }, [])
+
+    const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+        const el = scrollRef.current
+        if (!el) return
+        el.scrollTo({ top: el.scrollHeight, behavior })
+        requestAnimationFrame(updateScrollState)
+    }, [updateScrollState])
+
+    useEffect(() => {
+        nearBottomRef.current = true
+        setIsNearBottom(true)
+    }, [currentConversationId])
 
     useEffect(() => {
         const el = scrollRef.current
-        if (el) el.scrollTop = el.scrollHeight
-    }, [messages, isStreaming])
+        if (!el) return
+
+        if (nearBottomRef.current) {
+            el.scrollTo({
+                top: el.scrollHeight,
+                behavior: isStreaming ? 'auto' : 'smooth',
+            })
+        }
+
+        requestAnimationFrame(updateScrollState)
+    }, [messages, isStreaming, updateScrollState])
+
+    // 将 tool 消息归组到后续的 assistant 消息上
+    const messageGroups = useMemo(() => {
+        const groups: MessageGroup[] = []
+        let pendingTools: Message[] = []
+
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i]
+            if (msg.role === 'tool') {
+                pendingTools.push(msg)
+            } else {
+                groups.push({
+                    message: msg,
+                    index: i,
+                    toolMessages: msg.role === 'assistant' ? pendingTools : [],
+                })
+                pendingTools = []
+            }
+        }
+        return groups
+    }, [messages])
 
     const lastAssistantIndex = useMemo(() => {
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -38,6 +100,8 @@ function ChatArea() {
         if (currentConversationId) editAndResend(currentConversationId, messageIndex, newContent)
     }, [currentConversationId, editAndResend])
 
+    const showScrollToBottom = messages.length > 0 && !isNearBottom
+
     if (messages.length === 0 && !isStreaming) return <WelcomeScreen />
 
     function getErrorTitle() {
@@ -53,6 +117,7 @@ function ChatArea() {
     return (
         <div
             ref={scrollRef}
+            onScroll={updateScrollState}
             style={{
                 height: '100%',
                 overflow: 'auto',
@@ -84,12 +149,13 @@ function ChatArea() {
                     />
                 )}
 
-                {messages.map((msg, index) => (
+                {messageGroups.map((group) => (
                     <MessageBubble
-                        key={`${msg.role}-${index}-${msg.content.slice(0, 20)}`}
-                        message={msg}
-                        messageIndex={index}
-                        isLastAssistant={index === lastAssistantIndex}
+                        key={`${group.message.role}-${group.index}-${group.message.content.slice(0, 20)}`}
+                        message={group.message}
+                        messageIndex={group.index}
+                        toolMessages={group.toolMessages.length > 0 ? group.toolMessages : undefined}
+                        isLastAssistant={group.index === lastAssistantIndex}
                         onRetry={!isStreaming ? handleRetry : undefined}
                         onEditAndResend={!isStreaming ? handleEditAndResend : undefined}
                         isStreaming={isStreaming}
@@ -100,6 +166,31 @@ function ChatArea() {
                     messages[messages.length - 1].content === '' &&
                     !messages[messages.length - 1].thinkingContent && (
                     <ThinkingIndicator />
+                )}
+
+                {showScrollToBottom && (
+                    <div style={{
+                        position: 'sticky',
+                        bottom: 152,
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        pointerEvents: 'none',
+                        paddingTop: 12,
+                    }}>
+                        <Button
+                            type="default"
+                            shape="round"
+                            size="small"
+                            icon={<VerticalAlignBottomOutlined />}
+                            onClick={() => scrollToBottom('smooth')}
+                            style={{
+                                pointerEvents: 'auto',
+                                boxShadow: 'var(--shadow-md)',
+                            }}
+                        >
+                            回到底部
+                        </Button>
+                    </div>
                 )}
             </div>
         </div>

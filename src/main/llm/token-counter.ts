@@ -96,6 +96,86 @@ export function trimMessages(messages: ChatMessage[], contextWindow: number): Ch
     return [...systemMsgs, ...kept]
 }
 
+/**
+ * 压缩消息历史：将旧消息压缩为摘要，保留最近的消息
+ *
+ * - 触发阈值：70% 上下文窗口（低于截断的 80%，留空间给摘要）
+ * - 最少 6 条消息才压缩，否则 fallback 到 trimMessages
+ * - 保留最近 ~40% 窗口的消息，更早的消息通过 LLM 生成摘要
+ * - summarize 回调由调用方注入，解耦 token-counter 与 provider
+ */
+export async function compressMessages(
+    messages: ChatMessage[],
+    contextWindow: number,
+    summarize: (text: string) => Promise<string>
+): Promise<ChatMessage[]> {
+    const threshold = Math.floor(contextWindow * 0.7)
+    const total = estimateMessagesTokens(messages)
+
+    if (total <= threshold) return messages
+
+    // 分离 system 和非 system
+    const systemMsgs = messages.filter(m => m.role === 'system')
+    const nonSystemMsgs = messages.filter(m => m.role !== 'system')
+
+    // 消息太少，fallback 到 trimMessages
+    if (nonSystemMsgs.length < 6) {
+        return trimMessages(messages, contextWindow)
+    }
+
+    // 计算保留最近 ~40% 窗口的消息
+    const systemTokens = systemMsgs.reduce((sum, m) => sum + estimateMessageTokens(m), 0)
+    const keepBudget = Math.floor(contextWindow * 0.4) - systemTokens
+    const recentMsgs: ChatMessage[] = []
+    let recentTokens = 0
+
+    for (let i = nonSystemMsgs.length - 1; i >= 0; i--) {
+        const t = estimateMessageTokens(nonSystemMsgs[i])
+        if (recentTokens + t > keepBudget) break
+        recentMsgs.unshift(nonSystemMsgs[i])
+        recentTokens += t
+    }
+
+    // 至少保留最后 2 条
+    if (recentMsgs.length < 2) {
+        recentMsgs.length = 0
+        recentMsgs.push(...nonSystemMsgs.slice(-2))
+    }
+
+    // 需要压缩的旧消息
+    const oldCount = nonSystemMsgs.length - recentMsgs.length
+    if (oldCount < 2) {
+        return trimMessages(messages, contextWindow)
+    }
+
+    const oldMsgs = nonSystemMsgs.slice(0, oldCount)
+
+    // 格式化旧消息为文本
+    const oldText = oldMsgs.map(m => {
+        const role = m.role === 'user' ? '用户' : m.role === 'assistant' ? 'AI' : m.role
+        const text = m.content || ''
+        // 工具调用只保留名称
+        const toolInfo = m.tool_calls
+            ? `\n[调用工具: ${m.tool_calls.map(tc => tc.function.name).join(', ')}]`
+            : ''
+        // 截断过长的单条消息
+        const truncated = text.length > 500 ? text.substring(0, 500) + '...' : text
+        return `${role}: ${truncated}${toolInfo}`
+    }).join('\n')
+
+    // 调用 LLM 生成摘要
+    const summaryPrompt = `请用中文总结以下对话历史的要点，不超过 500 字。重点保留：用户的需求、AI 的关键决策、已完成的操作、重要的文件路径和代码变更。\n\n${oldText}`
+    const summary = await summarize(summaryPrompt)
+
+    // 组装：system + 摘要 system 消息 + 保留的最近消息
+    const summaryMsg: ChatMessage = {
+        role: 'system',
+        content: `[对话历史摘要]\n${summary}`,
+    }
+
+    return [...systemMsgs, summaryMsg, ...recentMsgs]
+}
+
 /** 各模型的上下文窗口大小（token 数） */
 export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
     // OpenAI

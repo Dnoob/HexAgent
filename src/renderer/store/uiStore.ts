@@ -1,23 +1,16 @@
 // src/renderer/store/uiStore.ts — UI 状态
 import { create } from 'zustand'
-
-export interface ConfirmRequest {
-    id: string
-    title: string
-    message: string
-    detail?: string
-    type: string // 'file' | 'python' | 'command' | 'default'
-}
+import type { ToolConfirmRequest } from '@shared/types'
 
 interface UIState {
     sidebarCollapsed: boolean
     settingsModalOpen: boolean
-    confirmRequest: ConfirmRequest | null
+    confirmRequest: ToolConfirmRequest | null
 
     toggleSidebar: () => void
     openSettings: () => void
     closeSettings: () => void
-    showConfirm: (request: ConfirmRequest) => void
+    showConfirm: (request: ToolConfirmRequest) => void
     clearConfirm: () => void
 }
 

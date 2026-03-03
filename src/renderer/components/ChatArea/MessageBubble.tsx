@@ -1,10 +1,9 @@
 // MessageBubble — Aether 风格消息（方圆角头像 + 发送者名称 + 无气泡）
-import { memo, useState, useRef, useCallback, useMemo, type ReactNode } from 'react'
+import { memo, useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { Button, Collapse, Tooltip, Input, Space, theme } from 'antd'
 import {
     UserOutlined,
     RobotOutlined,
-    ToolOutlined,
     CopyOutlined,
     CheckOutlined,
     ReloadOutlined,
@@ -13,7 +12,10 @@ import {
     EditOutlined,
     FolderOpenOutlined,
     SearchOutlined,
+    GlobalOutlined,
+    LinkOutlined,
     ExclamationCircleOutlined,
+    LoadingOutlined,
     SendOutlined,
     CloseOutlined,
     BulbOutlined,
@@ -21,25 +23,31 @@ import {
 import MarkdownRenderer from './MarkdownRenderer'
 import CodeBlock from './CodeBlock'
 import InlineArtifact from './InlineArtifact'
+import PlanSteps from './PlanSteps'
 import { useUIStyle } from '../../hooks/useUIStyle'
 import type { Message } from '../../store'
 
 interface Props {
     message: Message
     messageIndex?: number
+    toolMessages?: Message[]
     isLastAssistant?: boolean
     onRetry?: () => void
     onEditAndResend?: (messageIndex: number, newContent: string) => void
     isStreaming?: boolean
 }
 
-const toolIconMap: Record<string, { icon: ReactNode; label: string }> = {
-    read_file:       { icon: <FileTextOutlined />,   label: '读取文件' },
-    write_file:      { icon: <EditOutlined />,       label: '写入文件' },
-    list_directory:  { icon: <FolderOpenOutlined />, label: '列出目录' },
-    search_files:    { icon: <SearchOutlined />,     label: '搜索文件' },
-    execute_python:  { icon: <CodeOutlined />,       label: '执行 Python' },
-    run_command:     { icon: <CodeOutlined />,       label: '执行命令' },
+const toolLabelMap: Record<string, string> = {
+    read_file: '读取文件',
+    write_file: '写入文件',
+    edit_file: '编辑文件',
+    list_directory: '列出目录',
+    glob: '搜索文件名',
+    grep: '搜索内容',
+    execute_python: '执行 Python',
+    run_command: '执行命令',
+    web_search: '网页搜索',
+    fetch_url: '获取网页',
 }
 
 const RESULT_TRUNCATE_LINES = 20
@@ -55,6 +63,8 @@ function isErrorResult(text: string): boolean {
 function formatJson(raw: string): string {
     try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw }
 }
+
+// ==================== 工具结果详情 ====================
 
 function ToolResultContent({ content, toolName, token: designToken }: {
     content: string; toolName?: string; token: ReturnType<typeof theme.useToken>['token']
@@ -130,75 +140,83 @@ function ToolResultContent({ content, toolName, token: designToken }: {
     )
 }
 
-function MessageBubble({ message, messageIndex, isLastAssistant, onRetry, onEditAndResend, isStreaming }: Props) {
-    const { role, content, tokenCount, toolName, toolArgs, toolResult, thinkingContent } = message
-    const [hovered, setHovered] = useState(false)
-    const [copied, setCopied] = useState(false)
-    const [editing, setEditing] = useState(false)
-    const [editContent, setEditContent] = useState('')
-    const copyTimerRef = useRef<ReturnType<typeof setTimeout>>()
-    const { token } = theme.useToken()
-    const { isGlass } = useUIStyle()
+// ==================== 时间线单项 ====================
 
-    // ==================== 工具消息（紧凑单行） ====================
-    if (role === 'tool') {
-        const toolInfo = toolName ? toolIconMap[toolName] : undefined
-        const displayIcon = toolInfo?.icon ?? <ToolOutlined />
-        const displayLabel = toolInfo?.label ?? toolName ?? '工具调用'
-        const rc = content || toolResult || ''
-        const hasError = rc ? isErrorResult(rc) : false
-        const formattedArgs = useMemo(() => toolArgs ? formatJson(toolArgs) : null, [toolArgs])
+function ToolTimelineItem({ tool, isLast, token, isGlass }: {
+    tool: Message; isLast: boolean
+    token: ReturnType<typeof theme.useToken>['token']
+    isGlass: boolean
+}) {
+    const [expanded, setExpanded] = useState(false)
+    const { toolName, toolArgs, toolResult, content: toolContent } = tool
+    const displayLabel = (toolName && toolLabelMap[toolName]) || toolName || '工具调用'
+    const rc = toolContent || toolResult || ''
+    const isRunning = !toolResult
+    const hasError = rc ? isErrorResult(rc) : false
+    const isRejected = rc.startsWith('用户拒绝')
+    const formattedArgs = useMemo(() => toolArgs ? formatJson(toolArgs) : null, [toolArgs])
 
-        // 生成摘要文字
-        const getSummary = () => {
-            if (!rc) return '执行中...'
-            if (hasError) return '失败'
-            if (rc.startsWith('用户拒绝')) return '已拒绝'
-            if (toolName === 'list_directory') {
-                const count = rc.split('\n').filter(Boolean).length
-                return `${count} 项`
-            }
-            if (toolName === 'read_file') {
-                const lines = rc.split('\n').length
-                return `${lines} 行`
-            }
-            if (toolName === 'write_file') return '完成'
-            if (toolName === 'execute_python' || toolName === 'run_command') {
-                const lines = rc.split('\n').filter(Boolean).length
-                return lines > 0 ? `${lines} 行输出` : '完成'
-            }
-            return '完成'
+    const dotColor = isRunning ? token.colorPrimary
+        : hasError || isRejected ? token.colorError
+        : token.colorSuccess
+
+    const getSummary = () => {
+        if (isRunning) return '执行中...'
+        if (hasError) return '失败'
+        if (isRejected) return '已拒绝'
+        if (toolName === 'list_directory') return `${rc.split('\n').filter(Boolean).length} 项`
+        if (toolName === 'read_file') return `${rc.split('\n').length} 行`
+        if (toolName === 'write_file' || toolName === 'edit_file') return '完成'
+        if (toolName === 'glob') return `${rc.split('\n').filter(Boolean).length} 个文件`
+        if (toolName === 'grep') return `${rc.split('\n').filter(Boolean).length} 处匹配`
+        if (toolName === 'web_search') return `${rc.split(/\n\n/).filter(Boolean).length} 条结果`
+        if (toolName === 'fetch_url') return `${rc.length} 字符`
+        if (toolName === 'execute_python' || toolName === 'run_command') {
+            const lines = rc.split('\n').filter(Boolean).length
+            return lines > 0 ? `${lines} 行输出` : '完成'
         }
+        return '完成'
+    }
 
-        // 提取关键参数简要信息
-        const getArgHint = () => {
-            if (!toolArgs) return null
-            try {
-                const parsed = JSON.parse(toolArgs)
-                if (parsed.path) return parsed.path.split(/[/\\]/).pop()
-                if (parsed.command) return parsed.command.length > 40 ? parsed.command.substring(0, 40) + '...' : parsed.command
-                if (parsed.code) {
-                    const firstLine = parsed.code.split('\n')[0]
-                    return firstLine.length > 40 ? firstLine.substring(0, 40) + '...' : firstLine
-                }
-                if (parsed.directory) return parsed.directory.split(/[/\\]/).pop()
-            } catch { /* ignore */ }
-            return null
-        }
+    const getArgHint = () => {
+        if (!toolArgs) return null
+        try {
+            const parsed = JSON.parse(toolArgs)
+            if (parsed.path) return parsed.path.split(/[/\\]/).pop()
+            if (parsed.command) return parsed.command.length > 40 ? parsed.command.substring(0, 40) + '...' : parsed.command
+            if (parsed.code) { const fl = parsed.code.split('\n')[0]; return fl.length > 40 ? fl.substring(0, 40) + '...' : fl }
+            if (parsed.pattern && !parsed.command) return parsed.pattern.length > 40 ? parsed.pattern.substring(0, 40) + '...' : parsed.pattern
+            if (parsed.query) return parsed.query.length > 40 ? parsed.query.substring(0, 40) + '...' : parsed.query
+            if (parsed.url) { try { return new URL(parsed.url).hostname } catch { return parsed.url.substring(0, 40) } }
+            if (parsed.directory) return parsed.directory.split(/[/\\]/).pop()
+        } catch { /* ignore */ }
+        return null
+    }
 
-        const [expanded, setExpanded] = useState(false)
-        const argHint = getArgHint()
-        const hasDetail = !!(formattedArgs || rc)
+    const argHint = getArgHint()
+    const hasDetail = !!(formattedArgs || rc)
 
-        return (
-            <div className="fade-in" style={{ padding: '2px 0', marginLeft: 44 }}>
-                {/* 单行摘要 */}
+    return (
+        <div style={{ display: 'flex', minHeight: 26 }}>
+            {/* 竖线 + 圆点 */}
+            <div style={{ width: 16, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ width: 2, flex: '1 1 0', minHeight: 4, background: token.colorBorderSecondary }} />
+                <div style={{
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: dotColor,
+                    boxShadow: isRunning ? `0 0 0 3px ${token.colorPrimary}26` : 'none',
+                    animation: isRunning ? 'tool-pulse 1.5s ease-in-out infinite' : 'none',
+                }} />
+                <div style={{ width: 2, flex: '1 1 0', minHeight: 4, background: isLast ? 'transparent' : token.colorBorderSecondary }} />
+            </div>
+
+            {/* 内容 */}
+            <div style={{ flex: 1, minWidth: 0, padding: '1px 0 1px 8px' }}>
                 <div
                     onClick={() => hasDetail && setExpanded(!expanded)}
                     style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '4px 10px', borderRadius: 6,
-                        fontSize: 12, color: 'var(--text-tertiary)',
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '1px 6px', borderRadius: 4, fontSize: 12,
                         cursor: hasDetail ? 'pointer' : 'default',
                         transition: 'background 0.15s',
                         background: expanded ? (isGlass ? 'var(--glass-card)' : token.colorFillQuaternary) : 'transparent',
@@ -206,20 +224,17 @@ function MessageBubble({ message, messageIndex, isLastAssistant, onRetry, onEdit
                     onMouseEnter={(e) => { if (hasDetail) e.currentTarget.style.background = isGlass ? 'var(--glass-card)' : token.colorFillQuaternary }}
                     onMouseLeave={(e) => { if (!expanded) e.currentTarget.style.background = 'transparent' }}
                 >
-                    <span style={{ display: 'flex', fontSize: 13, color: hasError ? token.colorError : 'var(--primary, #6366f1)' }}>{displayIcon}</span>
-                    <span style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{displayLabel}</span>
+                    <span style={{ fontWeight: 500, color: isRunning ? token.colorPrimary : 'var(--text-secondary)' }}>{displayLabel}</span>
                     {argHint && <span style={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>{argHint}</span>}
-                    <span style={{ color: hasError ? token.colorError : token.colorSuccess, fontSize: 11 }}>
-                        {hasError ? <><ExclamationCircleOutlined /> {getSummary()}</> : <>
-                            <CheckOutlined style={{ fontSize: 10 }} /> {getSummary()}
-                        </>}
+                    <span style={{ color: 'var(--text-quaternary)', fontSize: 10 }}>·</span>
+                    <span style={{ color: dotColor, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        {isRunning ? <><LoadingOutlined spin style={{ fontSize: 10 }} />{getSummary()}</> : getSummary()}
                     </span>
-                    {hasDetail && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', transform: expanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▶</span>}
+                    {hasDetail && <span style={{ fontSize: 9, color: 'var(--text-quaternary)', transform: expanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▶</span>}
                 </div>
 
-                {/* 展开详情 */}
                 {expanded && (
-                    <div style={{ marginTop: 4, marginLeft: 10, paddingLeft: 10, borderLeft: `2px solid var(--border-subtle, #e5e7eb)` }}>
+                    <div style={{ marginTop: 4, marginLeft: 6, paddingLeft: 10, borderLeft: `2px solid ${token.colorBorderSecondary}` }}>
                         {formattedArgs && (
                             <div style={{ marginBottom: 6 }}>
                                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>参数</div>
@@ -235,13 +250,72 @@ function MessageBubble({ message, messageIndex, isLastAssistant, onRetry, onEdit
                     </div>
                 )}
 
-                {/* 内嵌图片（始终可见，不受展开状态影响） */}
-                {message.artifacts && message.artifacts.length > 0 && (
-                    <InlineArtifact artifacts={message.artifacts} />
+                {tool.artifacts && tool.artifacts.length > 0 && (
+                    <InlineArtifact artifacts={tool.artifacts} />
                 )}
             </div>
-        )
-    }
+        </div>
+    )
+}
+
+// ==================== 工具时间线滚动容器 ====================
+
+function ToolTimeline({ tools, token, isGlass }: {
+    tools: Message[]
+    token: ReturnType<typeof theme.useToken>['token']
+    isGlass: boolean
+}) {
+    const scrollRef = useRef<HTMLDivElement>(null)
+
+    // 新工具加入时自动滚到底部
+    useEffect(() => {
+        const el = scrollRef.current
+        if (el) el.scrollTop = el.scrollHeight
+    }, [tools.length])
+
+    return (
+        <div
+            ref={scrollRef}
+            style={{
+                maxHeight: 220,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                marginBottom: 6,
+                // 右侧留一点 padding 给滚动条
+                paddingRight: 4,
+            }}
+        >
+            <style>{`@keyframes tool-pulse {
+                0%, 100% { box-shadow: 0 0 0 0 ${token.colorPrimary}40; }
+                50% { box-shadow: 0 0 0 4px ${token.colorPrimary}00; }
+            }`}</style>
+            {tools.map((tool, i) => (
+                <ToolTimelineItem
+                    key={`${tool.toolName}-${i}`}
+                    tool={tool}
+                    isLast={i === tools.length - 1}
+                    token={token}
+                    isGlass={isGlass}
+                />
+            ))}
+        </div>
+    )
+}
+
+// ==================== 主组件 ====================
+
+function MessageBubble({ message, messageIndex, toolMessages, isLastAssistant, onRetry, onEditAndResend, isStreaming }: Props) {
+    const { role, content, tokenCount, thinkingContent } = message
+    const [hovered, setHovered] = useState(false)
+    const [copied, setCopied] = useState(false)
+    const [editing, setEditing] = useState(false)
+    const [editContent, setEditContent] = useState('')
+    const copyTimerRef = useRef<ReturnType<typeof setTimeout>>()
+    const { token } = theme.useToken()
+    const { isGlass } = useUIStyle()
+
+    // tool 消息不再独立渲染（已归组到 assistant）
+    if (role === 'tool') return null
 
     const isUser = role === 'user'
 
@@ -253,7 +327,6 @@ function MessageBubble({ message, messageIndex, isLastAssistant, onRetry, onEdit
         })
     }, [content])
 
-    // ==================== 消息内容样式 ====================
     const getGlassStyle = (): React.CSSProperties => {
         if (isUser) return {
             background: 'var(--glass-user-bg)', backdropFilter: 'blur(12px)', border: '1px solid var(--glass-user-border)',
@@ -272,7 +345,7 @@ function MessageBubble({ message, messageIndex, isLastAssistant, onRetry, onEdit
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
         >
-            {/* 头像 — 方圆角 */}
+            {/* 头像 */}
             <div style={{
                 width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 16, flexShrink: 0, boxShadow: 'var(--shadow-sm)',
@@ -291,7 +364,7 @@ function MessageBubble({ message, messageIndex, isLastAssistant, onRetry, onEdit
 
             {/* 消息内容 */}
             <div style={{ flex: 1, minWidth: 0 }}>
-                {/* 发送者名称 + 时间 */}
+                {/* 发送者名称 */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
                         {isUser ? '你' : 'HexAgent'}
@@ -327,6 +400,16 @@ function MessageBubble({ message, messageIndex, isLastAssistant, onRetry, onEdit
                         />
                     )
                 })()}
+
+                {/* 计划步骤 */}
+                {!isUser && message.plan && message.plan.steps.length > 0 && (
+                    <PlanSteps plan={message.plan} />
+                )}
+
+                {/* 工具时间线（嵌入 assistant 消息内） */}
+                {!isUser && toolMessages && toolMessages.length > 0 && (
+                    <ToolTimeline tools={toolMessages} token={token} isGlass={isGlass} />
+                )}
 
                 {/* 消息正文 */}
                 {isUser && editing ? (

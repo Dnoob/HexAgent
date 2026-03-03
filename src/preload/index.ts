@@ -1,5 +1,6 @@
 // 预加载脚本 - 桥梁（主进程与渲染进程之间的安全通道）
 import { contextBridge, ipcRenderer } from "electron"
+import type { MCPServerConfig, ToolConfirmRequest } from "../shared/types"
 
 contextBridge.exposeInMainWorld('hexAgent', {
     // ==================== 数据库操作 ====================
@@ -27,6 +28,8 @@ contextBridge.exposeInMainWorld('hexAgent', {
     chat: (messages: { role: string; content: string }[], options?: { provider?: string; model?: string }) =>
         ipcRenderer.invoke('llm:chat', messages, options),
     cancelChat: () => ipcRenderer.send('llm:cancel'),
+    generateTitle: (conversationId: number, userText: string): Promise<string | null> =>
+        ipcRenderer.invoke('llm:generate-title', conversationId, userText),
     onLLMChunk: (callback: (chunk: string) => void) => {
         ipcRenderer.removeAllListeners('llm:chunk')
         ipcRenderer.on('llm:chunk', (_event, chunk) => callback(chunk))
@@ -51,6 +54,10 @@ contextBridge.exposeInMainWorld('hexAgent', {
         ipcRenderer.removeAllListeners('llm:tool-result')
         ipcRenderer.on('llm:tool-result', (_event, toolName, result, artifacts) => callback(toolName, result, artifacts))
     },
+    onLLMPlanUpdate: (callback: (plan: any) => void) => {
+        ipcRenderer.removeAllListeners('llm:plan-update')
+        ipcRenderer.on('llm:plan-update', (_event, plan) => callback(plan))
+    },
 
     // ==================== 配置操作 ====================
     getConfig: () => ipcRenderer.invoke('config:get-all'),
@@ -66,8 +73,17 @@ contextBridge.exposeInMainWorld('hexAgent', {
     selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('select-directory'),
     getAppVersion: () => ipcRenderer.invoke('app:get-version'),
 
+    // ==================== MCP ====================
+    testMcpServer: (config: MCPServerConfig) => ipcRenderer.invoke('mcp:test-server', config),
+    getMcpStatuses: () => ipcRenderer.invoke('mcp:get-statuses'),
+    refreshMcpServers: () => ipcRenderer.invoke('mcp:refresh-servers'),
+    refreshMcpServer: (serverId: string) => ipcRenderer.invoke('mcp:refresh-server', serverId),
+    getMcpServerDetails: (serverId: string) => ipcRenderer.invoke('mcp:get-server-details', serverId),
+    getMcpPrompt: (serverId: string, promptName: string) => ipcRenderer.invoke('mcp:get-prompt', serverId, promptName),
+    readMcpResource: (serverId: string, uri: string) => ipcRenderer.invoke('mcp:read-resource', serverId, uri),
+
     // ==================== 工具确认 ====================
-    onToolConfirmRequest: (callback: (request: { id: string; title: string; message: string; detail?: string; type: string }) => void) => {
+    onToolConfirmRequest: (callback: (request: ToolConfirmRequest) => void) => {
         ipcRenderer.removeAllListeners('tool:confirm-request')
         ipcRenderer.on('tool:confirm-request', (_event, request) => callback(request))
     },

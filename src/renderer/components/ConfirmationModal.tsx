@@ -17,6 +17,7 @@ function ConfirmationModal() {
     if (!confirmRequest) return null
 
     const cfg = TYPE_CONFIG[confirmRequest.type] || TYPE_CONFIG.default
+    const actionAccent = confirmRequest.actionLabel === '覆盖文件' ? '#f59e0b' : '#10b981'
 
     const handleRespond = (approved: boolean) => {
         window.hexAgent.respondToolConfirm(confirmRequest.id, approved)
@@ -62,6 +63,30 @@ function ConfirmationModal() {
 
             {/* Message */}
             <div style={{ padding: '0 24px 12px' }}>
+                {(confirmRequest.actionLabel || confirmRequest.actionDescription) && (
+                    <div style={{ marginBottom: 12 }}>
+                        {confirmRequest.actionLabel && (
+                            <div style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '3px 10px',
+                                borderRadius: 999,
+                                background: `${actionAccent}14`,
+                                border: `1px solid ${actionAccent}33`,
+                                color: actionAccent,
+                                fontSize: 12,
+                                fontWeight: 600,
+                            }}>
+                                {confirmRequest.actionLabel}
+                            </div>
+                        )}
+                        {confirmRequest.actionDescription && (
+                            <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                                {confirmRequest.actionDescription}
+                            </Typography.Text>
+                        )}
+                    </div>
+                )}
                 <div style={{
                     fontSize: 13, color: 'var(--text-secondary)',
                     padding: '8px 12px',
@@ -102,6 +127,7 @@ function ConfirmationModal() {
                 borderTop: '1px solid var(--border-subtle, #e5e7eb)',
             }}>
                 <Button
+                    autoFocus
                     onClick={() => handleRespond(false)}
                     style={{ borderRadius: 8, height: 36 }}
                 >

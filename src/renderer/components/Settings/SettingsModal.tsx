@@ -1,10 +1,11 @@
 // SettingsModal — 设置弹窗
 import { Modal, Tabs } from 'antd'
-import { SettingOutlined, RobotOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { SettingOutlined, RobotOutlined, InfoCircleOutlined, ApiOutlined } from '@ant-design/icons'
 import { useUIStore } from '../../store'
 import ProviderSettings from './ProviderSettings'
 import GeneralSettings from './GeneralSettings'
 import AboutSettings from './AboutSettings'
+import McpSettings from './McpSettings'
 
 function SettingsModal() {
     const open = useUIStore((s) => s.settingsModalOpen)
@@ -31,6 +32,11 @@ function SettingsModal() {
                         key: 'general',
                         label: <span><SettingOutlined /> 通用</span>,
                         children: <GeneralSettings />,
+                    },
+                    {
+                        key: 'mcp',
+                        label: <span><ApiOutlined /> MCP</span>,
+                        children: <McpSettings />,
                     },
                     {
                         key: 'about',

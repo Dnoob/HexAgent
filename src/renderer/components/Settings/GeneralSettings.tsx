@@ -59,6 +59,14 @@ function GeneralSettings() {
                     />
                 </Form.Item>
 
+                {/* 启用任务规划 */}
+                <Form.Item label="启用任务规划" extra="开启后 AI 会先制定执行计划再逐步执行">
+                    <Switch
+                        checked={config.enablePlanning || false}
+                        onChange={(v) => updateConfig('enablePlanning', v)}
+                    />
+                </Form.Item>
+
                 {/* 高级选项 */}
                 <Collapse
                     ghost

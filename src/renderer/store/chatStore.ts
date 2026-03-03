@@ -1,6 +1,7 @@
 // src/renderer/store/chatStore.ts — 聊天消息状态管理
 import { create } from 'zustand'
 import { useConversationStore } from './conversationStore'
+import type { Plan } from '@shared/types'
 
 export interface Message {
     id?: number
@@ -12,6 +13,7 @@ export interface Message {
     toolArgs?: string
     toolResult?: string
     artifacts?: Array<{ type: 'image'; name: string; base64: string }>
+    plan?: Plan
 }
 
 /** 错误类型分类 */
@@ -71,44 +73,17 @@ export const useChatStore = create<ChatState>((set, get) => {
     // 当前会话 ID（由 sendMessage 设置，供 onDone 回调使用）
     let activeConversationId: number | null = null
 
-    /** 异步生成会话标题 */
-    async function generateTitle(convId: number, userText: string, assistantText: string) {
+    /** 异步生成会话标题（基于用户第一条消息） */
+    async function generateTitle(convId: number, userText: string) {
         try {
             const convStore = useConversationStore.getState()
             const conv = convStore.conversations.find((c) => c.id === convId)
-            // 只有 "新对话" 才自动生成标题
             if (!conv || conv.title !== '新对话') return
 
-            const titlePrompt = [
-                { role: 'user', content: userText },
-                { role: 'assistant', content: assistantText.substring(0, 200) },
-                { role: 'user', content: '请用10个字以内总结这段对话的主题，只返回标题文字，不要引号或标点。' },
-            ]
-
-            // 收集标题流式结果
-            let titleContent = ''
-
-            await new Promise<void>((resolve) => {
-                window.hexAgent.onLLMChunk((chunk) => {
-                    titleContent += chunk
-                })
-                window.hexAgent.onLLMDone(async () => {
-                    if (titleContent.trim()) {
-                        // 截断超长标题
-                        const title = titleContent.trim().substring(0, 20)
-                        await convStore.renameConversation(convId, title)
-                    }
-                    resolve()
-                })
-                window.hexAgent.onLLMError(() => {
-                    // 标题生成失败静默忽略
-                    resolve()
-                })
-                window.hexAgent.chat(titlePrompt)
-            })
-
-            // 恢复原来的监听器——需要重新调用 initListeners
-            get().initListeners()
+            const title = await window.hexAgent.generateTitle(convId, userText)
+            if (title) {
+                await convStore.loadConversations()
+            }
         } catch {
             // 标题生成失败，静默忽略
         }
@@ -151,10 +126,10 @@ export const useChatStore = create<ChatState>((set, get) => {
             }))
 
             // 3. 发起 LLM 调用（传入对话历史，不包含最后一条空消息）
-            const history = get().messages.slice(0, -1).map((m) => ({
-                role: m.role,
-                content: m.content,
-            }))
+            // 过滤掉 tool 消息：tool 消息仅用于 UI 展示，实际工具调用在 agent loop 内完成
+            const history = get().messages.slice(0, -1)
+                .filter((m) => m.role !== 'tool')
+                .map((m) => ({ role: m.role, content: m.content }))
             await window.hexAgent.chat(history)
         },
 
@@ -171,7 +146,6 @@ export const useChatStore = create<ChatState>((set, get) => {
             }
             if (lastUserIndex === -1) return
 
-            const userText = messages[lastUserIndex].content
             // 移除最后一条 user 消息之后的所有消息（包括 assistant 和 tool）
             const trimmedMessages = messages.slice(0, lastUserIndex + 1)
             set({ messages: trimmedMessages, error: null })
@@ -185,10 +159,9 @@ export const useChatStore = create<ChatState>((set, get) => {
                 isStreaming: true,
             }))
 
-            const history = trimmedMessages.map((m) => ({
-                role: m.role,
-                content: m.content,
-            }))
+            const history = trimmedMessages
+                .filter((m) => m.role !== 'tool')
+                .map((m) => ({ role: m.role, content: m.content }))
             await window.hexAgent.chat(history)
         },
 
@@ -228,10 +201,9 @@ export const useChatStore = create<ChatState>((set, get) => {
                 isStreaming: true,
             }))
 
-            const history = get().messages.slice(0, -1).map((m) => ({
-                role: m.role,
-                content: m.content,
-            }))
+            const history = get().messages.slice(0, -1)
+                .filter((m) => m.role !== 'tool')
+                .map((m) => ({ role: m.role, content: m.content }))
             await window.hexAgent.chat(history)
         },
 
@@ -278,6 +250,21 @@ export const useChatStore = create<ChatState>((set, get) => {
                                     result
                                 )
                             }
+                            break
+                        }
+                    }
+                    return { messages: msgs }
+                })
+            })
+
+            // Plan 更新
+            window.hexAgent.onLLMPlanUpdate((plan) => {
+                set((state) => {
+                    const msgs = [...state.messages]
+                    // 更新最后一条 assistant 消息的 plan
+                    for (let i = msgs.length - 1; i >= 0; i--) {
+                        if (msgs[i].role === 'assistant') {
+                            msgs[i] = { ...msgs[i], plan }
                             break
                         }
                     }
@@ -366,11 +353,11 @@ export const useChatStore = create<ChatState>((set, get) => {
                         })
                     }
 
-                    // 异步生成标题（不阻塞主流程）
+                    // 用用户第一条消息作为标题
                     const msgs = get().messages
                     const firstUser = msgs.find((m) => m.role === 'user')
                     if (firstUser) {
-                        generateTitle(convId, firstUser.content, content)
+                        generateTitle(convId, firstUser.content)
                     }
                 }
             })

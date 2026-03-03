@@ -18,6 +18,8 @@ function getDefaults(): AppConfig {
         allowedDirectories: [app.getPath('home')],
         maxToolIterations: 20,
         autoApproveTools: false,
+        enablePlanning: false,
+        mcpServers: [],
         temperature: 0.7,
         maxTokens: 4096,
         systemPrompt: '你是 HexAgent，一个智能桌面助手。你可以帮助用户处理文件、回答问题、编写代码等任务。请用简洁清晰的中文回答。',
